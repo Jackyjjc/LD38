@@ -3,123 +3,120 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class Game : MonoBehaviour {
+	public static readonly float PLANET_GRAVITY = 10f;
+	public static readonly float ROTATION_SPEED = 50f;
+	public static readonly float BLOCK_LANDING_PUSH = 5f;
+	public static readonly float CAMERA_ROTATE_ANGLE_PER_SECOND = 0.8f;
 
-	public static readonly float FULL_CIRCULAR_DEGREE = 360;
-	public static readonly float DEGREE_PER_SLOT = 30;
-	public static readonly int NUM_SLOTS = Mathf.FloorToInt(FULL_CIRCULAR_DEGREE / DEGREE_PER_SLOT);
-	public static readonly float BLOCK_FALLING_SPEED = 0.3f;
-	public static readonly float BLOCK_LANDING_SPEED = 5f;
+	private float blockDefaultFallingSpeed = 0.3f;
+	private float blockAccelerateSpeed = 5f;
 
-	public GameObject blockPrefab;
+	private GameObject blockPrefab;
 
 	// Variables from the inspector
 	public GameObject planet;
+	private float planetRadius;
+	public GameObject landedBlocks;
 	public bool debug = true;
 
-	public GameObject currentlyControllBlock;
-	public int currentSlot;
+	public GameObject playerControlBlock;
+	private float landingSpeed;
 
-	private int heightOfTallestSlot = 0;
-	public List<Block>[] slots;
+	private float currentSpawnHeight = 5;
+	private float currentHighest;
 
-	public 
+	HashSet<GameObject> toBeRemove;
+
+	// Variables for camera control
+	public float cameraZoomSpeed = 1;
+	public float cameraTargetSize = 1;
 
 	void Start () {
-		this.slots = new List<Block>[NUM_SLOTS];
-		for (int i = 0; i < NUM_SLOTS; i++) {
-			this.slots [i] = new List<Block> ();
-		}
+		this.toBeRemove = new HashSet<GameObject> ();
 
+		planetRadius = planet.GetComponent<CircleCollider2D> ().bounds.size.x / 2;
 		blockPrefab = Resources.Load<GameObject>("Prefabs/Block");
+		Camera.main.orthographicSize = currentSpawnHeight + 1;
+		cameraTargetSize = Camera.main.orthographicSize;
 	}
 	
 	void Update () {
-		
-		// If there is no currently active block, create one
-		if (currentlyControllBlock == null) {
-			spawnNewBlock();
+		// If player doesn't control any block, spawn one
+		if (playerControlBlock == null) {
+			GameObject newBlock = Instantiate (blockPrefab, new Vector3(0, currentSpawnHeight, 0), Quaternion.identity);
+			newBlock.transform.RotateAround(Vector3.zero, Vector3.forward, Random.Range(0, 360));
+			playerControlBlock = newBlock;
+			landingSpeed = blockDefaultFallingSpeed;
 		}
+
+		if (currentSpawnHeight - planetRadius - currentHighest <= 1) {
+			//need to scale up the spawn height
+			Debug.Log(currentSpawnHeight - planetRadius - currentHighest + " is ");
+			currentSpawnHeight += 1;
+			cameraTargetSize = currentSpawnHeight + 0.5f;
+		}
+
+		if (Mathf.Abs (Camera.main.orthographicSize - cameraTargetSize) > float.Epsilon) {
+			Camera.main.orthographicSize = Mathf.MoveTowards (Camera.main.orthographicSize, cameraTargetSize, cameraZoomSpeed * Time.deltaTime);
+		}
+		Camera.main.transform.RotateAround (Vector3.zero, Vector3.forward, CAMERA_ROTATE_ANGLE_PER_SECOND * Time.deltaTime);
 	}
 
 	void FixedUpdate() {
-		if (currentlyControllBlock == null) {
-			return;
+		// Apply gravity to all landed objects and clean up fallen objects
+		Rigidbody2D[] children = landedBlocks.GetComponentsInChildren<Rigidbody2D>();
+		foreach(Rigidbody2D rigidBody in children) {
+			GameObject go = rigidBody.gameObject;
+			Vector3 gravityDirection = (planet.transform.position - go.transform.position).normalized;
+			if (rigidBody.IsSleeping () || (rigidBody.velocity.magnitude < 0.01f)) {
+				float angle = Vector3.Angle (-gravityDirection, go.transform.rotation * Vector3.up);
+				if (angle > 30) {
+					toBeRemove.Add (go);
+					continue;
+				}
+			}
+
+			rigidBody.AddForce (gravityDirection * PLANET_GRAVITY);
 		}
 
-		// Apply downward force
-		Vector3 direction = (Vector3.zero - currentlyControllBlock.transform.position).normalized;
-		currentlyControllBlock.transform.position += direction * BLOCK_FALLING_SPEED * Time.deltaTime;
-		if (Input.GetKey ("down")) {
-			currentlyControllBlock.transform.position += direction * BLOCK_LANDING_SPEED * Time.deltaTime;
+		foreach (var go in toBeRemove) {
+			Destroy (go);
 		}
+		toBeRemove.Clear ();
 
-		// Apply rotation
-		int inputDir = 0;
-		if (Input.GetKey ("left")) {
-			inputDir = 1;
-		} else if (Input.GetKey ("right")) {
-			inputDir = -1;	
-		}
+		// Player control object have different physics to make things easier
+		if (playerControlBlock != null) {
+			
+			// Apply landing force
+			Vector3 gravityDirection = (planet.transform.position - playerControlBlock.transform.position).normalized;
 
-		if (currentlyControllBlock != null && inputDir != 0) {
-			currentSlot = ((currentSlot + inputDir) + NUM_SLOTS) % NUM_SLOTS;
-			currentlyControllBlock.transform.RotateAround(Vector3.zero, Vector3.forward, DEGREE_PER_SLOT * inputDir * Time.deltaTime);
-			return;
+			// landing speed is a constant
+			if (Input.GetKey ("down")) {
+				landingSpeed += blockAccelerateSpeed * Time.deltaTime;
+			}
+			//Debug.Log ("fallilng speed is " + landingSpeed);
+			playerControlBlock.transform.position += gravityDirection * landingSpeed * Time.deltaTime;
+
+			// Apply rotation
+			playerControlBlock.transform.RotateAround(planet.transform.position, Vector3.forward, -1 * Input.GetAxis("Horizontal") * ROTATION_SPEED * Time.deltaTime);		
 		}
 	}
 
 	public void ActiveBlockCollision(Collision2D collision) {
 		GameObject activeBlock = collision.otherCollider.gameObject;
-		if (debug && currentlyControllBlock == activeBlock) {
-			currentlyControllBlock = null;
-		}
-
-		bool landingSucceeded = false;
-
 		GameObject collidee = collision.collider.gameObject;
-		Debug.Log ("collideee " + collidee.name + " " + collidee.name.Equals ("Planet"));
-		if (collidee.name.Equals ("Planet")) {
-			landingSucceeded = true;
-		} else {
-			if (collidee.GetComponent<Rigidbody2D> ()) {
 
-			}
+		// Player cannot control this block anymore because it just landed
+		playerControlBlock = null;
 
+		Destroy(activeBlock.GetComponent<ActiveBlockCollider>());
+		activeBlock.GetComponent<Rigidbody2D> ().constraints = RigidbodyConstraints2D.None;
+		activeBlock.transform.SetParent (landedBlocks.transform);
 
-			Vector2 relativeVelocityDirection = (activeBlock.transform.position - collidee.transform.position).normalized;
-			float angle = Vector2.Angle (relativeVelocityDirection, activeBlock.transform.position);
-			Debug.Log ("angle is " + angle);
-			if (angle > 40f) {
-				Debug.Log ("exploded");
-				landingSucceeded = false;
-			} else {
-				landingSucceeded = true;
-			}
-			// could be collided with another active block or a static block, check ridgid body
-
+		// calculate the distance between the block and the center of the planet
+		float height = Vector3.Distance(activeBlock.transform.position, planet.transform.position) - planetRadius;
+		if (height > currentHighest) {
+			currentHighest = height;
 		}
-
-		if (landingSucceeded) {
-			// Put the block into the slot
-			slots [currentSlot].Add (activeBlock.GetComponent<Block>());
-			if (slots [currentSlot].Count > heightOfTallestSlot) {
-				heightOfTallestSlot = slots [currentSlot].Count;
-				// TODO: update camera size and intiial spawn position
-			}
-
-			activeBlock.GetComponent<Rigidbody2D> ().bodyType = RigidbodyType2D.Static;
-			activeBlock.GetComponent<Rigidbody2D> ().isKinematic = false;
-			activeBlock.transform.SetParent (planet.transform);
-		} else {
-			Destroy (activeBlock);
-		}
-	}
-
-	public void spawnNewBlock() {
-		GameObject newBlock = Instantiate (blockPrefab, new Vector3(0, 5, 0), Quaternion.identity);
-		// need to rotate it to a random spot
-		int slot =  Mathf.RoundToInt(Random.Range(0, NUM_SLOTS));
-		newBlock.transform.RotateAround(Vector3.zero, Vector3.forward, DEGREE_PER_SLOT * slot);
-		currentlyControllBlock = newBlock;
 	}
 }
