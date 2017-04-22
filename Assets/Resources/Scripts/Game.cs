@@ -1,12 +1,14 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System.Linq;
 
 public class Game : MonoBehaviour {
 	public static readonly float PLANET_GRAVITY = 10f;
 	public static readonly float ROTATION_SPEED = 50f;
 	public static readonly float BLOCK_LANDING_PUSH = 5f;
-	public static readonly float CAMERA_ROTATE_ANGLE_PER_SECOND = 0.8f;
+	public static readonly float PLANET_ROTATE_ANGLE_PER_SECOND = 0.8f;
+	public static readonly float MAX_ALLOWED_ANGLE = 20f;
 
 	private float blockDefaultFallingSpeed = 0.3f;
 	private float blockAccelerateSpeed = 5f;
@@ -31,6 +33,13 @@ public class Game : MonoBehaviour {
 	public float cameraZoomSpeed = 1;
 	public float cameraTargetSize = 1;
 
+	// Block types
+	public static readonly BlockType[] blockTypes = new BlockType[] {
+		new BlockType("foundation", 5, Color.red),
+		new BlockType("room", 2, Color.blue),
+		new BlockType("electriciy", 1, Color.yellow)
+	};
+
 	void Start () {
 		this.toBeRemove = new HashSet<GameObject> ();
 
@@ -43,10 +52,7 @@ public class Game : MonoBehaviour {
 	void Update () {
 		// If player doesn't control any block, spawn one
 		if (playerControlBlock == null) {
-			GameObject newBlock = Instantiate (blockPrefab, new Vector3(0, currentSpawnHeight, 0), Quaternion.identity);
-			newBlock.transform.RotateAround(Vector3.zero, Vector3.forward, Random.Range(0, 360));
-			playerControlBlock = newBlock;
-			landingSpeed = blockDefaultFallingSpeed;
+			SpawnBlock();
 		}
 
 		if (currentSpawnHeight - planetRadius - currentHighest <= 1) {
@@ -54,12 +60,27 @@ public class Game : MonoBehaviour {
 			Debug.Log(currentSpawnHeight - planetRadius - currentHighest + " is ");
 			currentSpawnHeight += 1;
 			cameraTargetSize = currentSpawnHeight + 0.5f;
+		} else if (currentSpawnHeight - planetRadius - currentHighest >= 3) {
+			// need to scale down the spawn height
+			currentSpawnHeight -= 2;
+			cameraTargetSize = currentSpawnHeight + 0.5f;
 		}
 
 		if (Mathf.Abs (Camera.main.orthographicSize - cameraTargetSize) > float.Epsilon) {
 			Camera.main.orthographicSize = Mathf.MoveTowards (Camera.main.orthographicSize, cameraTargetSize, cameraZoomSpeed * Time.deltaTime);
 		}
-		Camera.main.transform.RotateAround (Vector3.zero, Vector3.forward, CAMERA_ROTATE_ANGLE_PER_SECOND * Time.deltaTime);
+	}
+
+	void SpawnBlock() {
+		GameObject newBlock = Instantiate (blockPrefab, new Vector3(0, currentSpawnHeight, 0), Quaternion.identity);
+		newBlock.transform.RotateAround(Vector3.zero, Vector3.forward, Random.Range(0, 360));
+
+		BlockType blockType = blockTypes[Mathf.FloorToInt(Random.Range (0, blockTypes.Length))];
+		newBlock.GetComponent<SpriteRenderer> ().color = blockType.color;
+		newBlock.GetComponent<Rigidbody2D> ().mass = blockType.mass;
+
+		playerControlBlock = newBlock;
+		landingSpeed = blockDefaultFallingSpeed;
 	}
 
 	void FixedUpdate() {
@@ -70,13 +91,20 @@ public class Game : MonoBehaviour {
 			Vector3 gravityDirection = (planet.transform.position - go.transform.position).normalized;
 			if (rigidBody.IsSleeping () || (rigidBody.velocity.magnitude < 0.01f)) {
 				float angle = Vector3.Angle (-gravityDirection, go.transform.rotation * Vector3.up);
-				if (angle > 30) {
+				if (angle > MAX_ALLOWED_ANGLE) {
 					toBeRemove.Add (go);
 					continue;
 				}
 			}
 
 			rigidBody.AddForce (gravityDirection * PLANET_GRAVITY);
+		}
+
+
+
+		// recalcualte the heighest
+		if (toBeRemove.Count > 0) {
+			currentHighest = children.Max (c => CalculateBlockHeight (c.gameObject));
 		}
 
 		foreach (var go in toBeRemove) {
@@ -100,6 +128,9 @@ public class Game : MonoBehaviour {
 			// Apply rotation
 			playerControlBlock.transform.RotateAround(planet.transform.position, Vector3.forward, -1 * Input.GetAxis("Horizontal") * ROTATION_SPEED * Time.deltaTime);		
 		}
+
+		planet.transform.RotateAround (Vector3.zero, Vector3.forward, - PLANET_ROTATE_ANGLE_PER_SECOND * Time.deltaTime);
+		landedBlocks.transform.RotateAround (Vector3.zero, Vector3.forward, - PLANET_ROTATE_ANGLE_PER_SECOND * Time.deltaTime);
 	}
 
 	public void ActiveBlockCollision(Collision2D collision) {
@@ -113,10 +144,26 @@ public class Game : MonoBehaviour {
 		activeBlock.GetComponent<Rigidbody2D> ().constraints = RigidbodyConstraints2D.None;
 		activeBlock.transform.SetParent (landedBlocks.transform);
 
-		// calculate the distance between the block and the center of the planet
-		float height = Vector3.Distance(activeBlock.transform.position, planet.transform.position) - planetRadius;
+		float height = CalculateBlockHeight (activeBlock);
 		if (height > currentHighest) {
 			currentHighest = height;
 		}
+	}
+
+	public float CalculateBlockHeight(GameObject block) {
+		// calculate the distance between the block and the center of the planet
+		return Vector3.Distance(block.transform.position, planet.transform.position) - planetRadius;
+	}
+}
+
+public class BlockType {
+	public readonly string name;
+	public readonly int mass;
+	public readonly Color color;
+
+	public BlockType(string name, int mass, Color color) {
+		this.name = name;
+		this.mass = mass;
+		this.color = color;
 	}
 }
