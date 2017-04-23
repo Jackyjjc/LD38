@@ -18,6 +18,8 @@ namespace jackyjjc {
 
 		// ====================== Main Menu State Variables =======================
 		public GameObject titleScreen;
+		public GameObject[] tutorials;
+		public int currentTutorialIndex;
 
 		// ====================== Intro State Variables ===================
 		public GameObject introScreen;
@@ -132,6 +134,9 @@ namespace jackyjjc {
 			// Init main menu state
 			this.titleScreen.SetActive (true);
 			this.screenDimming.SetActive (true);
+			foreach (GameObject go in tutorials) {
+				go.SetActive (false);
+			}
 			this.titleScreen.transform.FindChild ("MainMenu/NewGame").GetComponent<Selectable>().Select();
 			Camera.main.orthographicSize = 8;
 
@@ -176,7 +181,9 @@ namespace jackyjjc {
 
 		void Update () {
 			if (finishedInit) {
-				if (currentGameState == GameState.INTRO) {
+				if (currentGameState == GameState.MAIN_MENU) {
+					MainMenuUpdate ();
+				} else if (currentGameState == GameState.INTRO) {
 					UpdateIntro ();
 				} else if (currentGameState == GameState.LEVEL_SWITCH) {
 					UpdateLevelSwitch ();
@@ -260,8 +267,24 @@ namespace jackyjjc {
 			StartIntro ();
 		}
 
-		public void Exit() {
-			Application.Quit();
+		public void Tutorial() {
+			titleScreen.SetActive (false);
+			Input.ResetInputAxes ();
+			currentTutorialIndex = 0;
+			tutorials [currentTutorialIndex].SetActive (true);
+		}
+
+		private void MainMenuUpdate() {
+			if (!titleScreen.activeSelf && Input.GetKeyUp("space")) {
+				tutorials [currentTutorialIndex].SetActive (false);
+				currentTutorialIndex++;
+				if (currentTutorialIndex >= tutorials.Length) {
+					titleScreen.SetActive (true);
+					currentTutorialIndex = 0;
+				} else {
+					tutorials [currentTutorialIndex].SetActive (true);
+				}
+			}
 		}
 
 		// ============================ Intro ============================
