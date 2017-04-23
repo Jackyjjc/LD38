@@ -39,17 +39,12 @@ namespace jackyjjc {
 		public GameObject levelSwitchScreen;
 		private Text levelText;
 		private Text briefingText;
-		private static readonly string[] briefingTexts = new string[] {
-			"Our employer started sending migrants over to this planet even though we think this planet is too small. Sigh...I guess we have to prepare the landing of the first batch of the migrants." +
-			"\n\nGoal:\n" +
-			"- Successfully land at least 5 pods.\n" +
-			"- Have a score of 90 or more.",
-		};
 			
 		private int currentLevel;
 		private ILevel currentLevelObject;
 		private ILevel[] levels = new ILevel[] {
-			new Level1()
+			new Level1(),
+			new Level2()
 		};
 
 		// ====================== endgame variables ========================
@@ -65,6 +60,7 @@ namespace jackyjjc {
 		public static readonly float PLANET_ROTATE_ANGLE_PER_SECOND = 0.8f;
 		public static readonly float MAX_ALLOWED_ANGLE = 20f;
 		public static readonly float MAX_ALLOWED_SIDEWAY_ANGLE = 40f;
+		public static readonly int RAYCAST_LAYER_MASK = 1 << 8;
 
 		private float blockDefaultFallingSpeed = 0.3f;
 		private float blockAccelerateSpeed = 5f;
@@ -72,6 +68,7 @@ namespace jackyjjc {
 		// Variables from the inspector
 		public GameObject planet;
 		public GameObject landedBlocks;
+		public GameObject limboBlocks;
 		public GameObject gameplayUI;
 		public bool debug = true;
 
@@ -83,8 +80,7 @@ namespace jackyjjc {
 		private float landingSpeed;
 		private float currentSpawnHeight;
 		private float currentHighest;
-
-		private HashSet<GameObject> toBeRemove;
+		internal int currentHighestNumBlocks;
 
 		// Game stats
 		internal Dictionary<BlockType, int> numBlocksLanded;
@@ -121,8 +117,8 @@ namespace jackyjjc {
 			blockSize = blockPrefab.GetComponent<BoxCollider2D>().size.x * 1.5f;
 
 			blockTypes = new BlockType[] {
-				new BlockType("Basic Pod (Blue)", 1, 10, new Color(27/255f, 98/255f, 1f), Resources.Load<Sprite>("Images/block_male"), ""),
-				new BlockType("Basic Pod (Pink)", 1, 10, new Color(1f, 85/255f, 85/255f), Resources.Load<Sprite>("Images/block_female"), "")
+				new BlockType("Basic Living Pod (Blue)", 1, 10, new Color(27/255f, 98/255f, 1f), Resources.Load<Sprite>("Images/block_male"), ""),
+				new BlockType("Basic Living Pod (Pink)", 1, 10, new Color(1f, 85/255f, 85/255f), Resources.Load<Sprite>("Images/block_female"), "")
 			};
 
 			// Initialise all variables
@@ -160,8 +156,7 @@ namespace jackyjjc {
 
 			// Init gameplay state
 			this.gameplayUI.SetActive(false);
-			this.toBeRemove = new HashSet<GameObject> ();
-			currentSpawnHeight = blockSize * 3 + planetRadius;
+			currentSpawnHeight = blockSize * 3.5f + planetRadius;
 			cameraTargetSize = Camera.main.orthographicSize;
 			this.numBlocksLanded = new Dictionary<BlockType, int> ();
 			foreach (BlockType type in blockTypes) {
@@ -202,15 +197,15 @@ namespace jackyjjc {
 
 		void FixedUpdate() {
 			if (finishedInit && (currentGameState == GameState.GAMEPLAY_STATE || currentGameState == GameState.GAME_END)) {
-				// Apply gravity to all landed objects and clean up fallen objects
-				Rigidbody2D[] children = landedBlocks.GetComponentsInChildren<Rigidbody2D>();
-				foreach(Rigidbody2D rigidBody in children) {
+				// Apply gravity to all landed objects and clean them up
+				Rigidbody2D[] landedBlocksRigidBody = landedBlocks.GetComponentsInChildren<Rigidbody2D>();
+				foreach(Rigidbody2D rigidBody in landedBlocksRigidBody) {
 					GameObject go = rigidBody.gameObject;
 					Vector3 gravityDirection = (planet.transform.position - go.transform.position).normalized;
 					if (rigidBody.IsSleeping () || (rigidBody.velocity.magnitude < 0.01f)) {
 						float angle = Vector3.Angle (-gravityDirection, go.transform.rotation * Vector3.up);
 						if (angle > MAX_ALLOWED_ANGLE) {
-							toBeRemove.Add (go);
+							DestroyBlock (go);
 							continue;
 						}
 					}
@@ -218,15 +213,18 @@ namespace jackyjjc {
 					rigidBody.AddForce (gravityDirection * PLANET_GRAVITY);
 				}
 
-				// recalcualte the heighest
-				if (toBeRemove.Count > 0) {
-					currentHighest = children.Max (c => CalculateBlockHeight (c.gameObject));
+				// Apply gravity to to-be-destroyed blocks
+				Rigidbody2D[] limboBlocksRigidBody = limboBlocks.GetComponentsInChildren<Rigidbody2D>();
+				foreach(Rigidbody2D body in limboBlocksRigidBody) {
+					Vector3 gravityDirection = (planet.transform.position - body.transform.position).normalized;
+					body.AddForce (gravityDirection * PLANET_GRAVITY);
 				}
 
-				foreach (var go in toBeRemove) {
-					DestroyBlock (go);
+				// recalcualte the heighest
+				if (limboBlocksRigidBody.Length > 0) {
+					currentHighest = landedBlocksRigidBody.Max (c => CalculateBlockHeight (c.gameObject));
+					UpdateHighestAll ();
 				}
-				toBeRemove.Clear ();
 
 				UpdateGoalList ();
 
@@ -337,25 +335,25 @@ namespace jackyjjc {
 		private void ExitIntro() {
 			introScreen.SetActive (false);
 			this.cameraZoomSpeed = 1f;
-			StartLevelSwitch ();
+			StartLevelSwitch (0);
 		}
 
 		// ============================ level Switch ==============================
-		private void StartLevelSwitch() {
+		private void StartLevelSwitch(int nextLevel) {
 			this.finishedInit = false;
 			this.screenDimming.SetActive (true);
 			this.levelSwitchScreen.SetActive (true);
+			this.currentLevel = nextLevel;
 			this.levelText.text = "Level " + (this.currentLevel + 1);
 			this.goalText.text = "Level " + (this.currentLevel + 1) + " goals: ";
+			this.currentLevelObject = levels [this.currentLevel];
+			this.currentLevelObject.Init ();
+			briefingText.text = currentLevelObject.GetBriefingText ();
 			this.finishedInit = true;
 			currentGameState = GameState.LEVEL_SWITCH;
 		}
 
 		private void UpdateLevelSwitch() {
-			// display level outline
-			briefingText.text = briefingTexts[this.currentLevel];
-			this.currentLevelObject = levels [this.currentLevel];
-			this.currentLevelObject.Init ();
 			if (Input.GetKeyUp ("space")) {
 				this.screenDimming.SetActive (false);
 				this.levelSwitchScreen.SetActive (false);
@@ -367,6 +365,11 @@ namespace jackyjjc {
 		private void StartGamePlay() {
 			this.finishedInit = false;
 			this.gameplayUI.SetActive (true);
+			if (goalList != null) {
+				foreach (Text goal in goalList) {
+					Destroy (goal.gameObject);
+				}
+			}
 			this.goalList = null;
 			UpdateGoalList ();
 			UpdateUpNext ();
@@ -383,11 +386,11 @@ namespace jackyjjc {
 			if (currentSpawnHeight - currentHighest <= 1.2f * blockSize) {
 				//need to scale up the spawn height
 				currentSpawnHeight += 1.2f * blockSize;
-				cameraTargetSize = currentSpawnHeight;
-			} else if (currentHighest > float.Epsilon && currentSpawnHeight - currentHighest >= 2.2f) {
+				cameraTargetSize = currentSpawnHeight - 0.5f;
+			} else if (currentHighest > float.Epsilon && currentSpawnHeight - currentHighest >= 2.4f) {
 				// need to scale down the spawn height
 				currentSpawnHeight -= 1.2f * blockSize;
-				cameraTargetSize = currentSpawnHeight;
+				cameraTargetSize = currentSpawnHeight - 0.5f;
 			}
 		}
 
@@ -436,15 +439,16 @@ namespace jackyjjc {
 				}
 			}
 
+			Destroy (activeBlock.GetComponent<ActiveBlockCollider> ());
+			activeBlock.GetComponent<Rigidbody2D> ().constraints = RigidbodyConstraints2D.None;
 			if (landedSuccessfully) {
-				Destroy (activeBlock.GetComponent<ActiveBlockCollider> ());
-				activeBlock.GetComponent<Rigidbody2D> ().constraints = RigidbodyConstraints2D.None;
 				activeBlock.transform.SetParent (landedBlocks.transform);
 
 				float height = CalculateBlockHeight (activeBlock);
 				if (height > currentHighest) {
 					currentHighest = height;
 				}
+				UpdateHighest (activeBlock);
 
 				BlockType blockType = activeBlock.GetComponent<Block> ().blockType;
 				numBlocksLanded [blockType] += 1;
@@ -452,7 +456,8 @@ namespace jackyjjc {
 				int scoreMultiplier = 1;
 				if (isPerfect) {
 					scoreMultiplier++;
-					CreatePopupText (activeBlock.transform.position, activeBlock.transform.rotation, "Perfect! x2", blockType.color);
+					Vector3 randomPos = activeBlock.transform.position + (Quaternion.AngleAxis (Random.Range (0, 360), Vector3.forward) * Vector3.up).normalized * 0.25f;
+					CreatePopupText (randomPos, activeBlock.transform.rotation, "Perfect! x2", blockType.color);
 				}
 				Score = Score + blockType.score * scoreMultiplier;
 
@@ -501,14 +506,15 @@ namespace jackyjjc {
 		}
 
 		private void DestroyBlock(GameObject block) {
+			block.transform.SetParent (limboBlocks.transform);
 			BlockType blockType = block.GetComponent<Block> ().blockType;
 			numBlocksLanded [blockType] -= 1;
 			Score = Score - blockType.score;
-			Destroy (block);
+			block.GetComponent<Block> ().SelfDestruct ();
 		}
 
 		private void UpdateUpNext() {
-			this.remainingText.text = currentLevelObject.GetNumRemainingBlocks() + " pods remaining\nUp next:";
+			this.remainingText.text = currentLevelObject.GetNumRemainingBlocks() + " more pods remaining\nUp next:";
 
 			upNext = currentLevelObject.getNextBlock (this);
 			if (upNext != null) {
@@ -529,11 +535,40 @@ namespace jackyjjc {
 				if (currentLevel >= levels.Length - 1) {
 					StartEndGame (true);
 				} else {
-					// TODO advance level;
+					StartLevelSwitch (currentLevel + 1);
 				}
 			} else {
 				// game ends
 				StartEndGame(false);
+			}
+		}
+
+		private void UpdateHighest(GameObject go) {
+			Vector3 gravityDirection = (planet.transform.position - go.transform.position).normalized;
+			RaycastHit2D[] hits = Physics2D.RaycastAll (go.transform.position, gravityDirection, Vector3.Distance (go.transform.position, Vector3.zero), RAYCAST_LAYER_MASK);
+			int height = hits.Length + 1;
+			//Debug.Log ("height: " + height);
+			if (height > currentHighestNumBlocks) {
+				currentHighestNumBlocks = height;
+			}
+		}
+
+		private void UpdateHighestAll() {
+			HashSet<GameObject> done = new HashSet<GameObject> ();
+			foreach (Transform go in landedBlocks.transform) {
+				if (done.Contains (go.gameObject)) {
+					continue;
+				}
+
+				Vector3 gravityDirection = (planet.transform.position - go.transform.position).normalized;
+				RaycastHit2D[] hits = Physics2D.RaycastAll (go.transform.position, gravityDirection, Vector3.Distance (go.transform.position, Vector3.zero), RAYCAST_LAYER_MASK);
+				int height = hits.Length + 1;
+				if (height > currentHighestNumBlocks) {
+					currentHighestNumBlocks = height;
+				}
+				foreach (RaycastHit2D hit in hits) {
+					done.Add(hit.collider.gameObject);
+				}
 			}
 		}
 
@@ -594,6 +629,7 @@ namespace jackyjjc {
 		public abstract int numGoals ();
 		public abstract string[] renderGoalText(Game game);
 		public abstract bool isGoalSatisfied (Game game, int i);
+		public abstract string GetBriefingText();
 		protected abstract BlockType _getNextBlock (Game game);
 
 		private int _numRemaining = 0; 
@@ -628,12 +664,12 @@ namespace jackyjjc {
 		public override string[] renderGoalText(Game game) {
 			return new string[] {
 				string.Format ("- Land {0} / 5 pods", game.numBlocksLanded.Values.Sum ()),
-				string.Format ("- Score {0} >= 90", game.Score)
+				string.Format ("- Score {0} >= 70", game.Score)
 			};
 		}
 
 		public override void Init() {
-			base.SetNumRemainingBlocks (10);
+			base.SetNumRemainingBlocks (8);
 		}
 
 		protected override BlockType _getNextBlock (Game game)
@@ -646,7 +682,7 @@ namespace jackyjjc {
 			case 0:
 				return game.numBlocksLanded.Values.Sum () >= 5;
 			case 1:
-				return game.Score >= 90;
+				return game.Score >= 70;
 			default:
 				return false;
 			}
@@ -654,6 +690,57 @@ namespace jackyjjc {
 
 		public override int numGoals() {
 			return 2;
+		}
+
+		public override string GetBriefingText() {
+			return "Our employer started sending migrants over to this planet even though we think this planet is too small. Sigh...I guess we have to prepare the landing of the first batch of the migrants." +
+				"\n\nGoal:\n" +
+				"- Successfully land at least 5 pods in total.\n" +
+				"- Have a score of 90 or more.";
+		}
+	}
+
+	public class Level2 : ILevel {
+		public override string[] renderGoalText(Game game) {
+			return new string[] {
+				string.Format ("- Land {0} / 10 pods", game.numBlocksLanded.Values.Sum ()),
+				string.Format ("- Score {0} >= 150", game.Score),
+				string.Format ("- A stack with height of 4 (Current highest {0})", game.currentHighestNumBlocks)
+			};
+		}
+
+		public override void Init() {
+			base.SetNumRemainingBlocks (8);
+		}
+
+		protected override BlockType _getNextBlock (Game game)
+		{
+			return game.blockTypes [Mathf.FloorToInt (Random.Range (0, 2))];
+		}
+
+		public override bool isGoalSatisfied(Game game, int index) {
+			switch (index) {
+			case 0:
+				return game.numBlocksLanded.Values.Sum () >= 10;
+			case 1:
+				return game.Score >= 150;
+			case 2: 
+				return game.currentHighestNumBlocks >= 4;
+			default:
+				return false;
+			}
+		}
+
+		public override int numGoals() {
+			return 2;
+		}
+
+		public override string GetBriefingText() {
+			return "Nice job landing those pods! Now, they want us to make higher ones because the to-be residents went to protests for better views." +
+			"\n\nGoal:\n" +
+			"- Successfully land at least 10 pods in total.\n" +
+			"- Have a score of 150 or more\n" +
+			"- Have at least a stack of 4 pods";
 		}
 	}
 }
