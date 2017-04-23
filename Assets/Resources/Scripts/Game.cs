@@ -42,7 +42,7 @@ namespace jackyjjc {
 		private static readonly string[] briefingTexts = new string[] {
 			"Our employer started sending migrants over to this planet even though we think this planet is too small. Sigh...I guess we have to prepare the landing of the first batch of the migrants." +
 			"\n\nGoal:\n" +
-			"- Successfully land at least 5 pods." +
+			"- Successfully land at least 5 pods.\n" +
 			"- Have a score of 90 or more.",
 		};
 			
