@@ -1,0 +1,21 @@
+fileFormatVersion: 2
+guid: 65ae85a113c963049b250eaf19e16cff
+timeCreated: 1492916085
+licenseType: Free
+TrueTypeFontImporter:
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontName: Doctor Soos Bold
+  fontNames:
+  - Doctor Soos Bold
+  fallbackFontReferences: []
+  customCharacters: 
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
