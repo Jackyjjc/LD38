@@ -49,6 +49,7 @@
      <Compile Include="Assets\Resources\Scripts\ActiveBlockCollider.cs" />
      <Compile Include="Assets\Resources\Scripts\Block.cs" />
      <Compile Include="Assets\Resources\Scripts\Game.cs" />
+     <Compile Include="Assets\Resources\Scripts\PopUpText.cs" />
      <Compile Include="Assets\Resources\Scripts\Star.cs" />
  <Reference Include="UnityEngine.UI">
  <HintPath>D:/Program Files/Unity/Editor/Data/UnityExtensions/Unity/GUISystem/UnityEngine.UI.dll</HintPath>
