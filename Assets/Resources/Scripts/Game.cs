@@ -44,7 +44,8 @@ namespace jackyjjc {
 		private ILevel currentLevelObject;
 		private ILevel[] levels = new ILevel[] {
 			new Level1(),
-			new Level2()
+			new Level2(),
+			new Level3()
 		};
 
 		// ====================== endgame variables ========================
@@ -86,6 +87,8 @@ namespace jackyjjc {
 		private float currentHighest;
 		internal int currentHighestNumBlocks;
 
+		private bool endlessMode;
+
 		// Game stats
 		internal Dictionary<BlockType, int> numBlocksLanded;
 		private int _score;
@@ -124,8 +127,9 @@ namespace jackyjjc {
 			blockSize = blockPrefab.GetComponent<BoxCollider2D>().size.x * 1.5f;
 
 			blockTypes = new BlockType[] {
-				new BlockType("Basic Living Pod (Blue)", 1, 10, new Color(27/255f, 98/255f, 1f), Resources.Load<Sprite>("Images/block_male"), ""),
-				new BlockType("Basic Living Pod (Pink)", 1, 10, new Color(1f, 85/255f, 85/255f), Resources.Load<Sprite>("Images/block_female"), "")
+				new BlockType("Basic Living Pod (Blue)", 2, 10, new Color(27/256f, 98/256f, 1f), Resources.Load<Sprite>("Images/block_male"), ""),
+				new BlockType("Basic Living Pod (Pink)", 2, 10, new Color(1f, 85/256f, 85/256f), Resources.Load<Sprite>("Images/block_female"), ""),
+				new BlockType("Basic Shop (Green)", 3, 10, new Color(152/256f, 245/256f, 126/256f), Resources.Load<Sprite>("Images/shop_green"), "10 extra score for each level higher")
 			};
 
 			// Initialise all variables
@@ -179,6 +183,7 @@ namespace jackyjjc {
 			this.remainingText = this.infoPanel.transform.FindChild ("RemainingText").GetComponent<Text> ();
 			AudioListener.volume = 1f;
 			audioButton.sprite = audioOn;
+			this.endlessMode = false;
 
 			this.finishedInit = true;
 		}
@@ -352,11 +357,20 @@ namespace jackyjjc {
 			this.finishedInit = false;
 			this.screenDimming.SetActive (true);
 			this.levelSwitchScreen.SetActive (true);
-			this.currentLevel = nextLevel;
-			this.levelText.text = "Level " + (this.currentLevel + 1);
-			this.goalText.text = "Level " + (this.currentLevel + 1) + " goals: ";
-			this.currentLevelObject = levels [this.currentLevel];
-			this.currentLevelObject.Init ();
+
+			if (!endlessMode) {
+				this.currentLevel = nextLevel;
+				this.levelText.text = "Level " + (this.currentLevel + 1);
+				this.goalText.text = "Level " + (this.currentLevel + 1) + " goals: ";
+				this.currentLevelObject = levels [this.currentLevel];
+			} else {
+				this.currentLevel = 0;
+				this.levelText.text = "Endless Mode";
+				this.goalText.text = "";
+				this.currentLevelObject = new Endless ();
+			}
+
+			this.currentLevelObject.Init (this);
 			briefingText.text = currentLevelObject.GetBriefingText ();
 			this.finishedInit = true;
 			currentGameState = GameState.LEVEL_SWITCH;
@@ -404,7 +418,7 @@ namespace jackyjjc {
 		}
 
 		private void SpawnBlock() {
-			if (upNext == null) {
+			if (!endlessMode && upNext == null) {
 				LevelEnd ();
 				return;
 			}
@@ -458,10 +472,15 @@ namespace jackyjjc {
 				if (height > currentHighest) {
 					currentHighest = height;
 				}
-				UpdateHighest (activeBlock);
+				int activeBlockHeight = UpdateHighest (activeBlock);
 
 				BlockType blockType = activeBlock.GetComponent<Block> ().blockType;
 				numBlocksLanded [blockType] += 1;
+
+				int basicScore = blockType.score;
+				if (blockType.name.Equals ("Basic Shop (Green)")) {
+					basicScore = basicScore + 10 * activeBlockHeight;
+				}
 
 				int scoreMultiplier = 1;
 				if (isPerfect) {
@@ -469,12 +488,12 @@ namespace jackyjjc {
 					Vector3 randomPos = activeBlock.transform.position + (Quaternion.AngleAxis (Random.Range (0, 360), Vector3.forward) * Vector3.up).normalized * 0.25f;
 					CreatePopupText (randomPos, activeBlock.transform.rotation, "Perfect! x2", blockType.color);
 				}
-				Score = Score + blockType.score * scoreMultiplier;
+				Score = Score + basicScore * scoreMultiplier;
 
 				// Update the level goal list
 				UpdateGoalList ();
 
-				if (currentLevelObject.isAllGoalsSatisfied (this)) {
+				if (!endlessMode && currentLevelObject.isAllGoalsSatisfied (this)) {
 					LevelEnd ();
 				}
 			} else {
@@ -524,7 +543,11 @@ namespace jackyjjc {
 		}
 
 		private void UpdateUpNext() {
-			this.remainingText.text = currentLevelObject.GetNumRemainingBlocks() + " more pods remaining\nUp next:";
+			if (endlessMode) {
+				this.remainingText.text = "Up next:";
+			} else {
+				this.remainingText.text = currentLevelObject.GetNumRemainingBlocks () + " more pods remaining\nUp next:";
+			}
 
 			upNext = currentLevelObject.getNextBlock (this);
 			if (upNext != null) {
@@ -553,7 +576,7 @@ namespace jackyjjc {
 			}
 		}
 
-		private void UpdateHighest(GameObject go) {
+		private int UpdateHighest(GameObject go) {
 			Vector3 gravityDirection = (planet.transform.position - go.transform.position).normalized;
 			RaycastHit2D[] hits = Physics2D.RaycastAll (go.transform.position, gravityDirection, Vector3.Distance (go.transform.position, Vector3.zero), RAYCAST_LAYER_MASK);
 			int height = hits.Length + 1;
@@ -561,6 +584,7 @@ namespace jackyjjc {
 			if (height > currentHighestNumBlocks) {
 				currentHighestNumBlocks = height;
 			}
+			return height;
 		}
 
 		private void UpdateHighestAll() {
@@ -605,6 +629,11 @@ namespace jackyjjc {
 					this.screenDimming.SetActive (true);
 					this.endGameScreen.SetActive (true);
 				}
+			} else if (Input.GetKeyUp ("c")) {
+				this.screenDimming.SetActive (false);
+				this.endGameScreen.SetActive (false);
+				endlessMode = true;
+				StartLevelSwitch (0);
 			}
 		}
 
@@ -637,6 +666,17 @@ namespace jackyjjc {
 		}
 	}
 
+	public class Utils {
+		public static void Suffle(BlockType[] array) {
+			for (int i = 0; i < array.Length; i++) {
+				BlockType temp = array[i];
+				int randomIndex = Mathf.FloorToInt(Random.Range(i, array.Length));
+				array[i] = array[randomIndex];
+				array[randomIndex] = temp;
+			}
+		}
+	}
+
 	public enum GameState {
 		MAIN_MENU,
 		INTRO,
@@ -664,11 +704,14 @@ namespace jackyjjc {
 			if (_numRemaining > 0) {
 				_numRemaining--;
 				return _getNextBlock (game);
+			} else if (_numRemaining == -1) {
+				// endless mode special
+				return _getNextBlock (game);
 			}
 			return null;
 		}
 
-		public virtual void Init () {}
+		public virtual void Init (Game game) {}
 
 		public bool isAllGoalsSatisfied(Game game) {
 			bool result = true;
@@ -688,7 +731,7 @@ namespace jackyjjc {
 			};
 		}
 
-		public override void Init() {
+		public override void Init(Game game) {
 			base.SetNumRemainingBlocks (8);
 		}
 
@@ -715,8 +758,8 @@ namespace jackyjjc {
 		public override string GetBriefingText() {
 			return "Our employer started sending migrants over to this planet even though we think this planet is too small. Sigh...I guess we have to prepare the landing of the first batch of the migrants." +
 				"\n\nGoal:\n" +
-				"- Successfully land at least 5 pods in total.\n" +
-				"- Have a score of 90 or more.";
+				"- Successfully land at least 5 pods in total\n" +
+				"- Have a score of 90 or more";
 		}
 	}
 
@@ -729,7 +772,7 @@ namespace jackyjjc {
 			};
 		}
 
-		public override void Init() {
+		public override void Init(Game game) {
 			base.SetNumRemainingBlocks (8);
 		}
 
@@ -758,9 +801,97 @@ namespace jackyjjc {
 		public override string GetBriefingText() {
 			return "Nice job landing those pods! Now, they want us to make higher ones because the to-be residents went to protests for better views." +
 			"\n\nGoal:\n" +
-			"- Successfully land at least 10 pods in total.\n" +
+			"- Successfully land at least 10 pods in total\n" +
 			"- Have a score of 150 or more\n" +
 			"- Have at least a stack of 4 pods";
+		}
+	}
+
+
+	public class Level3 : ILevel {
+		public override string[] renderGoalText(Game game) {
+			return new string[] {
+				string.Format ("- Land {0} / 15 pods", game.numBlocksLanded.Values.Sum ()),
+				string.Format ("- Score {0} >= 270", game.Score),
+				string.Format ("- Land {0} / 2 shops", game.numBlocksLanded[game.blockTypes[2]])
+			};
+		}
+
+		private int index;
+		BlockType[] blocks;
+
+		public override void Init(Game game) {
+			int numRemaining = 8;
+
+			this.index = 0;
+			List<BlockType> blockList = new List<BlockType> ();
+			blockList.Add (game.blockTypes [2]);
+			blockList.Add (game.blockTypes [2]);
+			blockList.Add (game.blockTypes [2]);
+			for (int i = 0; i < numRemaining - 3; i++) {
+				blockList.Add (game.blockTypes [Mathf.FloorToInt (Random.Range (0, 2))]);
+			}
+			blocks = blockList.ToArray ();
+			Utils.Suffle (blocks);
+			base.SetNumRemainingBlocks (numRemaining);
+		}
+
+		protected override BlockType _getNextBlock (Game game)
+		{
+			BlockType result = blocks[index];
+			index++;
+			return result;
+		}
+
+		public override bool isGoalSatisfied(Game game, int index) {
+			switch (index) {
+			case 0:
+				return game.numBlocksLanded.Values.Sum () >= 15;
+			case 1:
+				return game.Score >= 270;
+			case 2: 
+				return game.numBlocksLanded[game.blockTypes[2]] >= 2;
+			default:
+				return false;
+			}
+		}
+
+		public override int numGoals() {
+			return 3;
+		}
+
+		public override string GetBriefingText() {
+			return "Gah! These people are always complaining! Now they want some shops! You should place them high as well." +
+				"\n\nGoal:\n" +
+				"- Successfully land at least 15 pods in total\n" +
+				"- Have a score of 270 or more\n" +
+				"- Land at least 2 shops";
+		}
+	}
+	public class Endless : ILevel {
+		public override string[] renderGoalText(Game game) {
+			return new string[] {};
+		}
+			
+		public override void Init(Game game) {
+			base.SetNumRemainingBlocks (-1);
+		}
+
+		protected override BlockType _getNextBlock (Game game)
+		{
+			return game.blockTypes [Mathf.FloorToInt (Random.Range (0, game.blockTypes.Length))];
+		}
+
+		public override bool isGoalSatisfied(Game game, int index) {
+			return false;
+		}
+
+		public override int numGoals() {
+			return 0;
+		}
+
+		public override string GetBriefingText() {
+			return "Endless Mode!!";
 		}
 	}
 }
