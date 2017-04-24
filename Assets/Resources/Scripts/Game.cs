@@ -39,7 +39,7 @@ namespace jackyjjc {
 		public GameObject levelSwitchScreen;
 		private Text levelText;
 		private Text briefingText;
-			
+
 		private int currentLevel;
 		private ILevel currentLevelObject;
 		private ILevel[] levels = new ILevel[] {
@@ -62,14 +62,18 @@ namespace jackyjjc {
 		public static readonly float MAX_ALLOWED_SIDEWAY_ANGLE = 40f;
 		public static readonly int RAYCAST_LAYER_MASK = 1 << 8;
 
-		private float blockDefaultFallingSpeed = 0.3f;
+		private float blockDefaultFallingSpeed = 0.5f;
 		private float blockAccelerateSpeed = 5f;
+		private float fallinSpeedMax = 1f;
+		private float spawnHeightMultiplierMax = 1.5f;
 
 		// Variables from the inspector
 		public GameObject planet;
 		public GameObject landedBlocks;
 		public GameObject limboBlocks;
 		public GameObject gameplayUI;
+		public AudioClip explode;
+		public AudioClip landd;
 		public bool debug = true;
 
 		private GameObject blockPrefab;
@@ -106,6 +110,9 @@ namespace jackyjjc {
 		private Image upNextImage;
 		private Text upNextDescription;
 		private Text remainingText;
+		public Image audioButton;
+		public Sprite audioOn;
+		public Sprite audioOff;
 
 		// Block types
 		internal BlockType[] blockTypes;
@@ -156,7 +163,7 @@ namespace jackyjjc {
 
 			// Init gameplay state
 			this.gameplayUI.SetActive(false);
-			currentSpawnHeight = blockSize * 3.5f + planetRadius;
+			currentSpawnHeight = blockSize * 4f + planetRadius;
 			cameraTargetSize = Camera.main.orthographicSize;
 			this.numBlocksLanded = new Dictionary<BlockType, int> ();
 			foreach (BlockType type in blockTypes) {
@@ -170,6 +177,8 @@ namespace jackyjjc {
 			this.upNextImage = this.infoPanel.transform.FindChild ("Panel/Image").GetComponent<Image> ();
 			this.upNextDescription = this.infoPanel.transform.FindChild ("Panel/Text").GetComponent<Text> ();
 			this.remainingText = this.infoPanel.transform.FindChild ("RemainingText").GetComponent<Text> ();
+			AudioListener.volume = 1f;
+			audioButton.sprite = audioOn;
 
 			this.finishedInit = true;
 		}
@@ -383,13 +392,13 @@ namespace jackyjjc {
 				SpawnBlock();
 			}
 
-			if (currentSpawnHeight - currentHighest <= 1.2f * blockSize) {
+			if (currentSpawnHeight - currentHighest <= spawnHeightMultiplierMax * blockSize) {
 				//need to scale up the spawn height
-				currentSpawnHeight += 1.2f * blockSize;
+				currentSpawnHeight += spawnHeightMultiplierMax * blockSize;
 				cameraTargetSize = currentSpawnHeight - 0.5f;
-			} else if (currentHighest > float.Epsilon && currentSpawnHeight - currentHighest >= 2.4f) {
+			} else if (currentHighest > float.Epsilon && currentSpawnHeight - currentHighest >= spawnHeightMultiplierMax + 1) {
 				// need to scale down the spawn height
-				currentSpawnHeight -= 1.2f * blockSize;
+				currentSpawnHeight -= spawnHeightMultiplierMax * blockSize;
 				cameraTargetSize = currentSpawnHeight - 0.5f;
 			}
 		}
@@ -443,6 +452,7 @@ namespace jackyjjc {
 			activeBlock.GetComponent<Rigidbody2D> ().constraints = RigidbodyConstraints2D.None;
 			if (landedSuccessfully) {
 				activeBlock.transform.SetParent (landedBlocks.transform);
+				activeBlock.GetComponent<Block> ().Land (this);
 
 				float height = CalculateBlockHeight (activeBlock);
 				if (height > currentHighest) {
@@ -510,7 +520,7 @@ namespace jackyjjc {
 			BlockType blockType = block.GetComponent<Block> ().blockType;
 			numBlocksLanded [blockType] -= 1;
 			Score = Score - blockType.score;
-			block.GetComponent<Block> ().SelfDestruct ();
+			block.GetComponent<Block> ().SelfDestruct (this);
 		}
 
 		private void UpdateUpNext() {
@@ -595,6 +605,16 @@ namespace jackyjjc {
 					this.screenDimming.SetActive (true);
 					this.endGameScreen.SetActive (true);
 				}
+			}
+		}
+
+		public void ToggleVolume() {
+			if (AudioListener.volume > float.Epsilon) {
+				AudioListener.volume = 0f;
+				audioButton.sprite = audioOff;
+			} else {
+				AudioListener.volume = 1f;
+				audioButton.sprite = audioOn;
 			}
 		}
 	}
